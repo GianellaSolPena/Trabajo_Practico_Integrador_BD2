@@ -32,3 +32,7 @@ Las PK son `BIGINT GENERATED ALWAYS AS IDENTITY`, con nombre `id_<tabla>`.
 ## Limitaciones conocidas (no garantizadas por el motor hoy)
 - El stock de `producto` no se descuenta automáticamente al insertar un `detalle_pedido`.
 - Se puede vender un producto o categorizar bajo una categoría que ya tiene `deleted_at` seteado (eliminada lógicamente).
+
+## Seguridad
+Respetar siempre las normas definidas en
+`.kiro/steering/security-policies.md`.

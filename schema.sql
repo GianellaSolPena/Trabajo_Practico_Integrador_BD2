@@ -27,7 +27,10 @@ CREATE TABLE cliente (
     deleted_at TIMESTAMPTZ,
 
     CONSTRAINT chk_email_formato
-        CHECK (email LIKE '%@%.%')
+        CHECK (email LIKE '%@%.%'),
+
+    CONSTRAINT chk_username_unico
+        UNIQUE (username)
 );
 
 
@@ -51,7 +54,9 @@ CREATE TABLE categoria (
 CREATE TABLE producto (
     id_producto BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
-    precio DECIMAL(10, 2) NOT NULL CHECK (precio >= 0),
+    precio DECIMAL(10, 2) NOT NULL
+        CONSTRAINT chk_producto_precio_positivo
+        CHECK (precio > 0),
     stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
 
     id_categoria BIGINT NOT NULL
@@ -82,6 +87,30 @@ CREATE TABLE pedido (
     updated_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ
 );
+
+
+-- ============================================
+-- TRIGGER VALIDACIÓN FECHA PEDIDO
+-- ============================================
+-- Impide que fecha_pedido sea anterior a CURRENT_DATE. Se usa un
+-- trigger (y no un CHECK) porque CURRENT_DATE es un valor móvil: un
+-- CHECK invalidaría las filas al pasar el día y rompería cualquier
+-- UPDATE posterior de la misma fila.
+
+CREATE OR REPLACE FUNCTION fn_validar_fecha_pedido()
+RETURNS trigger AS $$
+BEGIN
+    IF NEW.fecha_pedido::date < CURRENT_DATE THEN
+        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser anterior a la fecha actual (%)',
+            NEW.fecha_pedido, CURRENT_DATE;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_pedido_fecha_no_pasada
+    BEFORE INSERT OR UPDATE ON pedido
+    FOR EACH ROW EXECUTE FUNCTION fn_validar_fecha_pedido();
 
 
 -- ============================================

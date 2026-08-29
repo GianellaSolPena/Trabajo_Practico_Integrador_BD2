@@ -5,3 +5,4 @@ Necesito que crees un script SQL llamado `restricciones.sql` que agregue restric
 2) En `pedido`: una restricción llamada chk_pedido_fecha_no_pasada que impida que  fecha_pedido sea anterior a CURRENT_DATE. Evaluá si conviene CHECK o trigger y  explicame por qué elegiste esa opción.
 
 3) En `cliente`: una restriccion llamada chk_username_unico que garantice el username no serepita entre clientes.
+

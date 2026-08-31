@@ -8,4 +8,4 @@ inclusion: always
   usarlo en una consulta SQL (usar parámetros, nunca concatenar strings).
 - Las contraseñas de usuarios se guardan siempre hasheadas (bcrypt/argon2),
   nunca en texto plano.
-- No exponer mensajes de error de la base de datos directamente al cliente.
+- No exponer mensajes de error de la base de datos directamente al usuario.

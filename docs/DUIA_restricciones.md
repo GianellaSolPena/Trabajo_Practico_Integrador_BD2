@@ -6,9 +6,9 @@ Necesito que crees un script SQL llamado `restricciones.sql` que agregue restric
 
 1) En `producto`: reemplazá el CHECK existente de `precio` por uno llamado  chk_producto_precio_positivo que exija precio > 0 (no >= 0).
 
-2) En `pedido`: una restricción llamada chk_pedido_fecha_no_pasada que impida que  fecha_pedido sea anterior a CURRENT_DATE. Evaluá si conviene CHECK o trigger y  explicame por qué elegiste esa opción.
+2) En `pedido`: una restricción llamada chk_pedido_fecha_no_pasada que impida que  fecha_pedido sean posteriores al CURRENT_DATE. Evaluá si conviene CHECK o trigger y  explicame por qué elegiste esa opción.
 
-3) En `cliente`: una restriccion llamada chk_username_unico que garantice el username no serepita entre clientes.
+3) En `usuario`: una restriccion llamada chk_username_unico que garantice el username no serepita entre usuarios.
 
 ## Que genero
 -- 1) producto: reemplazar CHECK de precio
@@ -37,14 +37,14 @@ CREATE TRIGGER trg_pedido_fecha_no_pasada
     BEFORE INSERT OR UPDATE ON pedido
     FOR EACH ROW EXECUTE FUNCTION fn_validar_fecha_pedido();
 
--- 3) cliente: username único (nunca reutilizable, aun con borrado lógico)
-ALTER TABLE cliente
+-- 3) usuario: username único (nunca reutilizable, aun con borrado lógico)
+ALTER TABLE usuario
     ADD CONSTRAINT chk_username_unico UNIQUE (username);
 
 
 ## Que se acepto
 
-Se aceptó el 100% de la propuesta generada por OpenCode en el archivo restricciones.sql: la restricción chk_producto_precio_positivo (CHECK (precio > 0)), la función y el trigger trg_pedido_fecha_no_pasada para validar la fecha de los pedidos, y la restricción chk_username_unico (UNIQUE) para la tabla cliente.
+Se aceptó el 100% de la propuesta generada por OpenCode en el archivo restricciones.sql: la restricción chk_producto_precio_positivo (CHECK (precio > 0)), la función y el trigger trg_pedido_fecha_no_pasada para validar la fecha de los pedidos, y la restricción chk_username_unico (UNIQUE) para la tabla usuario.
 
 ## Que se modifico 
 

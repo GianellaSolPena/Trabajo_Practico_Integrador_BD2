@@ -1,199 +1,191 @@
 # Parte 2: Anomalías con Dos Sesiones Concurrentes
 
----
-
-## EXPERIMENTO 1: Espera por Bloqueo (Read Committed vs. Repeatable Read)
-
-### Caso 1: Nivel por Defecto (`Read Committed`)
-
-#### Orden de Ejecución Intercalado
-1. **[Sesión A]** `BEGIN;`
-2. **[Sesión A]** `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-3. **[Sesión B]** `BEGIN;`
-4. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2420.00
-   ```
-5. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2420.00
-   ```
-6. **[Sesión A]** `COMMIT;`
-7. **[Sesión B]** `COMMIT;`
+## EXPERIMENTOS SELECCIONADOS
 
 
+# EXPERIMENTO 1: Espera por Bloqueo (Read Committed vs. Repeatable Read)
+Informe del experimento: informe_concurrencia_espera_por_bloqueo.md
 
----
-
-### Caso 2: Nivel `Repeatable Read`
-
-#### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN ISOLATION LEVEL REPEATABLE READ;`
-2. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2400.00
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2662.00
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
+# EXPERIMENTO 2: Lectura No Repetible (Non-Repeatable Read)
+Informe del experimento: informe_concurrencia_lectura_no_repetible.md
+ 
+# EXPERIMENTO 3:  Lectura Fantasma (Phantom Read)
+Informe del experimento: informe_concurrencia_lectura_fantasma.md
 
 
---
+## EXPLICACION DE LOS 3 CASOS POR LA IA
 
-### EXPLICAION DE LA IA
+### 1. Espera por bloqueo (Lock Waiting) — tabla `producto`
 
-Analicé los 3 experimentos (6 casos). Como los valores numéricos registrados son algo inconsistentes entre casos (2400/2420/2662), dejo primero el fenómeno lógico y después la nota al final.
-EXPERIMENTO 1 — Espera por Bloqueo (RC vs RR)
-Caso 1 (Read Committed)
-- Qué pasó: A toma el lock de escritura de la fila (UPDATE sobre producto 1, sin commit). B lee la misma fila dos veces y ve el mismo valor (2420) porque A no commiteó todavía: los SELECT no esperan por locks (MVCC) ni ven datos sin commit. A commitea después de las lecturas de B, así que B nunca observa el cambio → en este intercalado no se manifiesta ninguna anomalía.
-- Qué lo evitaría: Para B no hay nada que evitar si solo lee (MVCC ya lo resuelve). La "espera" real existe solo si B escribiera la misma fila: esperaría bajo cualquier nivel. Para que B vea valores estables aunque A commitee entre sus dos lecturas → REPEATABLE READ.
+En PostgreSQL, cuando una sesión ejecuta un `UPDATE` (o `SELECT ... FOR UPDATE`) sobre una fila, adquiere un **bloqueo exclusivo a nivel de fila**. Si una segunda sesión intenta modificar la misma fila (o leerla con `FOR UPDATE`), el motor la **pone en espera** hasta que la primera sesión libere el lock con `COMMIT` o `ROLLBACK`. Mientras tanto, la segunda sesión queda bloqueada y no avanza.
 
+**Fenómeno:** Sesión B se bloquea intentando acceder a la misma fila que la Sesión A tiene lockeada. Solo se desbloquea cuando A confirma o revierte su transacción.
 
-Caso 2 (Repeatable Read)
-- Qué pasó: B fija su snapshot en el primer SELECT (2400). A modifica y commitea. B relee y el registro muestra 2662, lo que es incoherente con RR: bajo RR la segunda lectura debe devolver el mismo valor (2400). 2662 = 2420×1.1, o sea un estado anterior — si se observó así, la sesión B no quedó realmente en RR (verificar con SHOW TRANSACTION ISOLATION LEVEL).
-- Qué lo evitaría: REPEATABLE READ o SERIALIZABLE, que congelan la snapshot durante toda la transacción.
+**Secuencia SQL para reproducirlo:**
 
---
-
-## EXPERIMENTO 2: Lectura No Repetible (Non-Repeatable Read)
-
-### Caso 1: Nivel `Read Committed`
-
-#### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN;`
-2. **[Sesión B]** `SELECT stock FROM producto WHERE id_producto = 1;`
-   ```text
-    stock 
-   -------
-     240
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `UPDATE producto SET stock = stock - 5 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT stock FROM producto WHERE id_producto = 1;`
-   ```text
-    stock 
-   -------
-     235
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `UPDATE producto SET stock = stock - 1 WHERE id_producto = 1;` | |
+| | *(fila lockeada, no commiteado)* | |
+| 3 | | `BEGIN;` |
+| 4 | | `UPDATE producto SET stock = stock - 1 WHERE id_producto = 1;` |
+| | | **SE BLOQUEA** — la terminal no responde, espera el lock |
+| 5 | `COMMIT;` | |
+| | *(libera el lock)* | **Se desbloquea y ejecuta el UPDATE** |
+| 6 | | `COMMIT;` |
 
 ---
 
-### Caso 2: Nivel `Repeatable Read`
+### 2. Lectura no repetible (Non-Repeatable Read) — tabla `producto`
 
-#### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN ISOLATION LEVEL REPEATABLE READ;`
-2. **[Sesión B]** `SELECT stock FROM producto WHERE id_producto = 1;`
-   ```text
-    stock 
-   -------
-     235
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `UPDATE producto SET stock = stock - 5 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT stock FROM producto WHERE id_producto = 1;`
-   ```text
-    stock 
-   -------
-     235
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
+Una **lectura no repetible** ocurre cuando una transacción ejecuta la misma consulta dos veces y obtiene resultados diferentes, porque otra sesión modificó y commiteó los datos entre ambas lecturas.
 
----
-### EXPLICACION DE LA IA
+- **READ COMMITTED:** cada `SELECT` dentro de la transacción ve los datos commiteados al momento de ejecutarse. Si entre el primer y segundo `SELECT` otra transacción commiteó un `UPDATE`, el segundo `SELECT` verá el valor nuevo. → **Lectura no repetible sí ocurre.**
+- **REPEATABLE READ:** la transacción toma un snapshot al iniciar y todos los `SELECT` ven la misma versión de los datos durante toda la transacción. → **Lectura no repetible NO ocurre.**
 
-Caso 1 (Read Committed)
-- Qué pasó: B lee stock=240; A descuenta 5 y commitea (queda 235); B relee y ve 235 → LECTURA NO REPETIBLE. En RC cada sentencia abre un snapshot nuevo y ve el último commit.
-- Qué lo evitaría: REPEATABLE READ (la segunda lectura vuelve a dar 240) o SERIALIZABLE. Alternativa clásica de bloqueo: locks compartidos de lectura mantenidos hasta el commit (tipo SELECT ... FOR SHARE).
+**Secuencia SQL — Prueba con READ COMMITTED (sí ocurre):**
 
-Caso 2 (Repeatable Read)
-- Qué pasó: B lee 235; A descuenta a 230 y commitea; B relee y sigue viendo 235 (misma snapshot) → comportamiento correcto, sin anomalía.
-- Qué lo evitaría: Ya está prevenido; solo hay que no bajar a RC. Nota: si B intentara ahora escribir basado en ese valor viejo, RR lanzaría un error de serialización (40001), evitando también la pérdida de actualización.
----
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `SET TRANSACTION ISOLATION LEVEL READ COMMITTED;` | |
+| 3 | `SELECT id_producto, precio FROM producto WHERE id_producto = 1;` | |
+| | → resultado: `precio = 1500.00` | |
+| 4 | | `BEGIN;` |
+| 5 | | `UPDATE producto SET precio = 9999.00 WHERE id_producto = 1;` |
+| 6 | | `COMMIT;` |
+| 7 | `SELECT id_producto, precio FROM producto WHERE id_producto = 1;` | |
+| | → resultado: **`precio = 9999.00`** ← CAMBIÓ | |
+| 8 | `ROLLBACK;` | |
 
-## EXPERIMENTO 3: Lectura Fantasma (Phantom Read)
+El mismo `SELECT` ejecutado dos veces dentro de la misma transacción devolvió valores distintos (1500.00 y luego 9999.00). Eso es una lectura no repetible.
 
-### Caso 1: Nivel `Read Committed`
+**Secuencia SQL — Prueba con REPEATABLE READ (no ocurre):**
 
-#### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN;`
-2. **[Sesión B]** `SELECT COUNT(*) FROM detalle_pedido WHERE id_pedido = 1;`
-   ```text
-    count 
-   -------
-        1
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `INSERT INTO detalle_pedido (id_pedido, id_producto, cantidad, precio_unitario) VALUES (1, 3, 2, 450.00);`
-   - *Salida:* `INSERT 0 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT COUNT(*) FROM detalle_pedido WHERE id_pedido = 1;`
-   ```text
-    count 
-   -------
-        2
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;` | |
+| 3 | `SELECT id_producto, precio FROM producto WHERE id_producto = 1;` | |
+| | → resultado: `precio = 1500.00` | |
+| 4 | | `BEGIN;` |
+| 5 | | `UPDATE producto SET precio = 9999.00 WHERE id_producto = 1;` |
+| 6 | | `COMMIT;` |
+| 7 | `SELECT id_producto, precio FROM producto WHERE id_producto = 1;` | |
+| | → resultado: **`precio = 1500.00`** ← NO CAMBIÓ | |
+| 8 | `ROLLBACK;` | |
+
+El segundo `SELECT` sigue devolviendo 1500.00, el snapshot de la transacción A lo mantiene. No hay lectura no repetible.
 
 ---
 
-### Caso 2: Nivel `Repeatable Read`
+### 3. Lectura Fantasma (Phantom Read) — tabla `detalle_pedido`
 
-#### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN ISOLATION LEVEL REPEATABLE READ;`
-2. **[Sesión B]** `SELECT COUNT(*) FROM detalle_pedido WHERE id_pedido = 1;`
-   ```text
-    count 
-   -------
-        2
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `INSERT INTO detalle_pedido (id_pedido, id_producto, cantidad, precio_unitario) VALUES (1, 2, 1, 450.00);`
-   - *Salida:* `INSERT 0 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT COUNT(*) FROM detalle_pedido WHERE id_pedido = 1;`
-   ```text
-    count 
-   -------
-        2
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
+Una **lectura fantasma** ocurre cuando una transacción ejecuta una consulta agregada (`COUNT`, `SUM`) dos veces y obtiene resultados diferentes, porque otra sesión **insertó filas nuevas** que cumplen con la condición `WHERE` de la consulta y commiteó entre ambas ejecuciones. A diferencia de la lectura no repetible (que se produce por un `UPDATE` sobre filas existentes), el fantasma se produce por filas nuevas que aparecen.
 
---- 
-### EXPLICACION DE LA IA 
-Caso 1 (Read Committed)
-- Qué pasó: B cuenta 1 detalle del pedido 1; A inserta una fila y commitea; B recuenta y ve 2 → LECTURA FANTASMA (aparece una fila nueva durante la transacción).
-- Qué lo evitaría: En PostgreSQL, REPEATABLE READ ya evita phantoms (la snapshot no ve el INSERT posterior commiteado) y SERIALIZABLE también. Como mecanismo de bloqueo clásico: gap/range locks sobre el rango consultado (es lo que hace MySQL/InnoDB; Postgres lo logra vía snapshot).
+En PostgreSQL: **READ COMMITTED** permite fantasmas. **REPEATABLE READ** los previene porque usa snapshot isolation.
 
-Caso 2 (Repeatable Read)
-- Qué pasó: B cuenta 2; A inserta otra fila y commitea; B recuenta y sigue viendo 2 porque la fila nueva no está en su snapshot → sin phantoms.
-- Qué lo evitaría: Ya prevenido por RR/SERIALIZABLE.
+**Secuencia SQL — Prueba con READ COMMITTED (fantasma sí ocurre):**
+
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `SELECT COUNT(*) AS total_lineas FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: `total_lineas = 1` | |
+| 3 | `SELECT SUM(cantidad) AS total_cantidad FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: `total_cantidad = 3` | |
+| 4 | | `BEGIN;` |
+| 5 | | `INSERT INTO detalle_pedido (id_pedido, id_producto, cantidad) VALUES (1, 2, 5);` |
+| 6 | | `COMMIT;` |
+| 7 | `SELECT COUNT(*) AS total_lineas FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: **`total_lineas = 2`** ← FANTASMA | |
+| 8 | `SELECT SUM(cantidad) AS total_cantidad FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: **`total_cantidad = 8`** ← FANTASMA | |
+| 9 | `ROLLBACK;` | |
+
+La primera vez `COUNT(*)` devolvió 1 y `SUM(cantidad)` devolvió 3. La segunda vez devolvió 2 y 8 respectivamente. La fila insertada por la Sesión B es un fantasma que apareció entre ambas lecturas.
+
+**Secuencia SQL — Prueba con REPEATABLE READ (fantasma no ocurre):**
+
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;` | |
+| 3 | `SELECT COUNT(*) AS total_lineas FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: `total_lineas = 1` | |
+| 4 | `SELECT SUM(cantidad) AS total_cantidad FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: `total_cantidad = 3` | |
+| 5 | | `BEGIN;` |
+| 6 | | `INSERT INTO detalle_pedido (id_pedido, id_producto, cantidad) VALUES (1, 2, 5);` |
+| 7 | | `COMMIT;` |
+| 8 | `SELECT COUNT(*) AS total_lineas FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: **`total_lineas = 1`** ← NO CAMBIÓ | |
+| 9 | `SELECT SUM(cantidad) AS total_cantidad FROM detalle_pedido WHERE id_pedido = 1;` | |
+| | → resultado: **`total_cantidad = 3`** ← NO CAMBIÓ | |
+| 10 | `ROLLBACK;` | |
+
+> **Nota:** El estándar SQL dice que REPEATABLE READ no previene fantasmas, pero PostgreSQL lo implementa como snapshot isolation, que sí los previene en la práctica.
+
+---
+
+## COMO SOLUCIONARLO
+
+### Solución a la espera por bloqueo
+
+La espera por bloqueo es un comportamiento **normal y necesario** del motor para garantizar la integridad de los datos. No es un error en sí mismo, pero puede degradar el rendimiento si las transacciones mantienen locks largos. Las estrategias para mitigarlo son:
+
+- **Mantener las transacciones lo más cortas posible:** no hacer operaciones lentas (lecturas externas, llamadas a APIs, procesamiento) dentro de una transacción que ya tomó locks.
+- **Usar `SET lock_timeout`:** define un tiempo máximo de espera. Si la sesión no obtiene el lock en ese tiempo, falla con error en lugar de bloquearse indefinidamente.
+  ```sql
+  SET lock_timeout = '3s'; -- falla si no obtiene lock en 3 segundos
+  ```
+- **Ordenar los accesos:** si múltiples transacciones necesitan lockear las mismas filas, acceder a ellas en el mismo orden reduce la probabilidad de deadlocks.
+- **Usar `SELECT ... FOR UPDATE NOWAIT`:** en lugar de esperar, falla inmediatamente si la fila ya está lockeada, permitiendo reintentar con otra lógica.
+  ```sql
+  SELECT * FROM producto WHERE id_producto = 1 FOR UPDATE NOWAIT;
+  ```
+
+### Solución a la lectura no repetible
+
+La lectura no repetible se soluciona elevando el nivel de aislamiento:
+
+- **Usar `REPEATABLE READ`:** toma un snapshot al inicio de la transacción y todos los `SELECT` ven la misma versión de los datos.
+  ```sql
+  BEGIN;
+  SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+  -- ahora todas las lecturas son consistentes dentro de la transacción
+  ```
+- **Usar `SERIALIZABLE`:** el nivel más alto. No solo previene lecturas no repetibles, sino que serializa transacciones que podrían interferir entre sí (detecta dependencias de lectura-escritura).
+  ```sql
+  BEGIN;
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  ```
+
+### Solución a la lectura fantasma
+
+La lectura fantasma se soluciona de forma similar, pero con matices según el motor:
+
+- **En PostgreSQL, `REPEATABLE READ` ya previene fantasmas** gracias a su implementación de snapshot isolation. No es necesario subir a SERIALIZABLE solo por fantasmas.
+- **Usar `SERIALIZABLE`:** si además se quiere prevenir anomalies como write skew, este nivel aplica bloqueos pesados (predicate locks) que detectan y rechazan transacciones serializables conflictivas.
+  ```sql
+  BEGIN;
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  ```
+- **Serializar la lógica de negocio:** si la aplicación necesita leer-contar-modificar, encapsular esa lógica en una función `PL/pgSQL` con `LOCK TABLE` o usar advisory locks para serializar el acceso a la tabla completa.
+  ```sql
+  -- Bloqueo a nivel de tabla completa (más pesado pero efectivo)
+  LOCK TABLE detalle_pedido IN SHARE MODE;
+  SELECT COUNT(*) FROM detalle_pedido WHERE id_pedido = 1;
+  -- ... lógica de negocio ...
+  ```
+
+### Resumen de soluciones
+
+| Escenario | Solución principal |
+|-----------|-------------------|
+| Espera por bloqueo | Transacciones cortas, `lock_timeout`, `FOR UPDATE NOWAIT` |
+| Lectura no repetible | `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` |
+| Lectura fantasma | `REPEATABLE READ` (en PostgreSQL) o `SERIALIZABLE` |
+
+

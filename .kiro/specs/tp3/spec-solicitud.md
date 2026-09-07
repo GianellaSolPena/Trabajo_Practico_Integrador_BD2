@@ -1,6 +1,6 @@
 # Consultas SQL — FoodStore
 
-## 1. Primera consulta: Resumen
+## 1. Primera consulta: Resumen(agregacion)
 
 ### Prompt
 

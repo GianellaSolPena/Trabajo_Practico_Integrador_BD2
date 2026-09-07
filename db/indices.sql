@@ -1,10 +1,3 @@
--- ============================================
--- ÍNDICES DE RENDIMIENTO — FoodStore
--- Idempotente: seguro de re-aplicar.
--- ============================================
--- Fuente de verdad de índices: este archivo define los índices de
--- rendimiento. `schema.sql` define las PK/FK y `idx_producto_nombre_vig`.
--- Ambos deben mantenerse alineados.
 
 DROP INDEX IF EXISTS idx_producto_categoria_precio;
 

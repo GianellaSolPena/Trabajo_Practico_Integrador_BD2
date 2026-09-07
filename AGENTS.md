@@ -17,17 +17,26 @@ Todas las tablas tienen `created_at` y `updated_at` (TIMESTAMPTZ).
 Las PK son `BIGINT GENERATED ALWAYS AS IDENTITY`, con nombre `id_<tabla>`.
 
 ### Tipos ENUM
-- `forma_de_pago`: EFECTIVO, CREDITO, DEBITO, TRANSFERENCIA.
+- `forma_pago`: EFECTIVO, CREDITO, DEBITO, TRANSFERENCIA, TARJETA.
+- `estado_pedido`: PENDIENTE, CONFIRMADO, TERMINADO, CANCELADO.
 
 ### Tablas
-- **cliente** (`id_cliente`): username, email (UNIQUE, formato validado por CHECK), contrasena.
+- **usuario** (`id_usuario`): nombre, apellido, mail (UNIQUE, formato validado por CHECK), celular, contrasena.
 - **categoria** (`id_categoria`): nombre.
-- **producto** (`id_producto`): nombre, precio (CHECK >= 0), stock (CHECK >= 0), `id_categoria` → FK a categoria (ON DELETE RESTRICT).
-- **pedido** (`id_pedido`): fecha_pedido, forma_de_pago (enum, default EFECTIVO), `id_cliente` → FK a cliente (ON DELETE RESTRICT).
-- **detalle_pedido** (PK compuesta `id_pedido, id_producto`): cantidad (CHECK > 0), precio_unitario (CHECK >= 0), FK a pedido (ON DELETE CASCADE) y a producto (ON DELETE RESTRICT).
+- **producto** (`id_producto`): nombre, precio (CHECK > 0), stock (CHECK >= 0), id_categoria → FK a categoria (ON DELETE RESTRICT).
+- **pedido** (`id_pedido`): fecha (TIMESTAMPTZ, default now), estado (enum, default PENDIENTE), forma_pago (enum, default EFECTIVO), id_usuario → FK a usuario (ON DELETE RESTRICT). Trigger que impide fecha posterior a la actual (`trg_pedido_fecha_no_pasada`). Trigger que valida transiciones de estado (`trg_validar_estado_pedido`).
+- **detalle_pedido** (PK compuesta `id_pedido, id_producto`): cantidad (CHECK > 0), precio_unitario (CHECK >= 0), subtotal (NOT NULL), FK a pedido (ON DELETE CASCADE) y a producto (ON DELETE RESTRICT). Trigger `trg_subtotal` completa precio_unitario y subtotal automáticamente.
 
 ### Índices
-`idx_pedido_cliente` sobre pedido(id_cliente), `idx_producto_categoria` sobre producto(id_categoria).
+Definidos en `db/indices.sql` y `schema.sql`:
+- `idx_pedido_usuario` sobre pedido(id_usuario).
+- `idx_producto_categoria` sobre producto(id_categoria).
+- `idx_producto_nombre_vig` sobre producto(nombre) parcial (deleted_at IS NULL).
+- `idx_producto_categoria_precio` sobre producto(id_categoria, precio DESC) parcial (deleted_at IS NULL).
+- `idx_producto_precio` sobre producto(precio) parcial (deleted_at IS NULL).
+- `idx_pedido_usuario_fecha` sobre pedido(id_usuario, fecha) parcial (deleted_at IS NULL).
+
+> **Fuente de verdad de índices:** `db/indices.sql` (los índices de rendimiento) y `schema.sql` (PK/FK y `idx_producto_nombre_vig`). Ambos deben mantenerse alineados; son idempotentes para re-ejecución.
 
 ## Limitaciones conocidas (no garantizadas por el motor hoy)
 - El stock de `producto` no se descuenta automáticamente al insertar un `detalle_pedido`.

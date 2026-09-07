@@ -4,13 +4,10 @@
 
 
 # EXPERIMENTO 1: Espera por Bloqueo (Read Committed vs. Repeatable Read)
-Informe del experimento: informe_concurrencia_espera_por_bloqueo.md
 
 # EXPERIMENTO 2: Lectura No Repetible (Non-Repeatable Read)
-Informe del experimento: informe_concurrencia_lectura_no_repetible.md
  
 # EXPERIMENTO 3:  Lectura Fantasma (Phantom Read)
-Informe del experimento: informe_concurrencia_lectura_fantasma.md
 
 
 ## EXPLICACION DE LOS 3 CASOS POR LA IA

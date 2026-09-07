@@ -63,7 +63,7 @@ CREATE TABLE producto (
     descripcion VARCHAR(250),
     stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
 
-    categoria_id BIGINT NOT NULL
+    id_categoria BIGINT NOT NULL
         REFERENCES categoria(id_categoria)
         ON DELETE RESTRICT,
 
@@ -83,7 +83,7 @@ CREATE TABLE pedido (
     estado estado_pedido NOT NULL DEFAULT 'PENDIENTE',
     forma_pago forma_pago NOT NULL DEFAULT 'EFECTIVO',
 
-    usuario_id BIGINT NOT NULL
+    id_usuario BIGINT NOT NULL
         REFERENCES usuario(id_usuario)
         ON DELETE RESTRICT,
 
@@ -96,7 +96,7 @@ CREATE TABLE pedido (
 -- ============================================
 -- TRIGGER VALIDACIÓN FECHA PEDIDO
 -- ============================================
--- Impide que fecha sea anterior a CURRENT_DATE. Se usa un
+-- Impide que fecha sea posterior a CURRENT_DATE. Se usa un
 -- trigger (y no un CHECK) porque CURRENT_DATE es un valor móvil: un
 -- CHECK invalidaría las filas al pasar el día y rompería cualquier
 -- UPDATE posterior de la misma fila.
@@ -104,8 +104,8 @@ CREATE TABLE pedido (
 CREATE OR REPLACE FUNCTION fn_validar_fecha_pedido()
 RETURNS trigger AS $$
 BEGIN
-    IF NEW.fecha::date < CURRENT_DATE THEN
-        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser anterior a la fecha actual (%)',
+    IF NEW.fecha::date > CURRENT_DATE THEN
+        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser posterior a la fecha actual (%)',
             NEW.fecha, CURRENT_DATE;
     END IF;
     RETURN NEW;
@@ -121,18 +121,18 @@ CREATE TRIGGER trg_pedido_fecha_no_pasada
 -- DETALLE PEDIDO
 
 CREATE TABLE detalle_pedido (
-    pedido_id BIGINT NOT NULL
+    id_pedido BIGINT NOT NULL
         REFERENCES pedido(id_pedido)
         ON DELETE CASCADE,
 
-    producto_id BIGINT NOT NULL
+    id_producto BIGINT NOT NULL
         REFERENCES producto(id_producto)
         ON DELETE RESTRICT,
 
     cantidad INT NOT NULL CHECK (cantidad > 0),
     precio_unitario DECIMAL(10, 2) NOT NULL,
     subtotal DECIMAL(10, 2) NOT NULL,
-    PRIMARY KEY (pedido_id, producto_id),
+    PRIMARY KEY (id_pedido,id_producto),
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ,
@@ -150,7 +150,7 @@ CREATE OR REPLACE FUNCTION fn_completar_subtotal()
 RETURNS trigger AS $$
 BEGIN
     NEW.precio_unitario := (
-        SELECT precio FROM producto WHERE id_producto = NEW.producto_id
+        SELECT precio FROM producto WHERE id_producto = NEW.id_producto
     );
     NEW.subtotal := NEW.cantidad * NEW.precio_unitario;
     RETURN NEW;
@@ -167,7 +167,10 @@ CREATE TRIGGER trg_subtotal
 -- ============================================
 
 CREATE INDEX idx_pedido_usuario
-    ON pedido(usuario_id);
+    ON pedido(id_usuario);
 
 CREATE INDEX idx_producto_categoria
-    ON producto(categoria_id);
+    ON producto(id_categoria);
+
+CREATE INDEX idx_producto_nombre_vig ON producto(nombre)
+WHERE deleted_at IS NULL;

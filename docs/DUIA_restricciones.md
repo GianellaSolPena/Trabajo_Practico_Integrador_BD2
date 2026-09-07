@@ -19,15 +19,15 @@ ALTER TABLE producto
 ALTER TABLE producto
     ADD CONSTRAINT chk_producto_precio_positivo CHECK (precio > 0);
 
--- 2) pedido: impedir fecha_pedido anterior a CURRENT_DATE (trigger)
-DROP TRIGGER IF EXISTS trg_validar_fecha_pedido ON pedido;
+-- 2) pedido: impedir fecha posterior a CURRENT_DATE (trigger)
+DROP TRIGGER IF EXISTS trg_pedido_fecha_no_pasada ON pedido;
 
 CREATE OR REPLACE FUNCTION fn_validar_fecha_pedido()
 RETURNS trigger AS $$
 BEGIN
-    IF NEW.fecha_pedido::date < CURRENT_DATE THEN
-        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser anterior a hoy (%)',
-            NEW.fecha_pedido, CURRENT_DATE;
+    IF NEW.fecha::date > CURRENT_DATE THEN
+        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser posterior a hoy (%)',
+            NEW.fecha, CURRENT_DATE;
     END IF;
     RETURN NEW;
 END;
@@ -37,9 +37,9 @@ CREATE TRIGGER trg_pedido_fecha_no_pasada
     BEFORE INSERT OR UPDATE ON pedido
     FOR EACH ROW EXECUTE FUNCTION fn_validar_fecha_pedido();
 
--- 3) usuario: username único (nunca reutilizable, aun con borrado lógico)
+-- 3) usuario: mail único (nunca reutilizable, aun con borrado lógico)
 ALTER TABLE usuario
-    ADD CONSTRAINT chk_username_unico UNIQUE (username);
+    ADD CONSTRAINT chk_username_unico UNIQUE (mail);
 
 
 ## Que se acepto

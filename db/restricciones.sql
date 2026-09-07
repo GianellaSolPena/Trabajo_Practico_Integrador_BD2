@@ -59,10 +59,9 @@ CREATE TRIGGER trg_pedido_fecha_no_pasada
 
 -- ============================================
 -- 3) USUARIO: mail único
---    Requirement: chk_username_unico.
---    El schema actual modela al usuario con nombre/apellido/mail, y la
---    unicidad que garantiza el nombre de la restricción recae sobre la
---    columna mail: ningún usuario comparte mail, incluso si uno está
+--    Requirement: chk_username_unico (renombrada como chk_mail_unico).
+--    La unicidad recae sobre la columna mail (lo que identifica al
+--    usuario): ningún usuario comparte mail, incluso si uno está
 --    eliminado lógicamente (deleted_at set). El UNIQUE es total sobre
 --    la columna.
 -- ============================================
@@ -70,10 +69,13 @@ ALTER TABLE usuario
     DROP CONSTRAINT IF EXISTS chk_username_unico;
 
 ALTER TABLE usuario
+    DROP CONSTRAINT IF EXISTS chk_mail_unico;
+
+ALTER TABLE usuario
     DROP CONSTRAINT IF EXISTS usuario_mail_key;
 
 ALTER TABLE usuario
-    ADD CONSTRAINT chk_username_unico UNIQUE (mail);
+    ADD CONSTRAINT chk_mail_unico UNIQUE (mail);
 
 
 -- ============================================

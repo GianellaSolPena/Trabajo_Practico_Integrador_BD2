@@ -1,2 +1,2 @@
-db/backups/*.dump
+db/backups
 .env

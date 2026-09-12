@@ -3,68 +3,45 @@
 ### Caso 1: Nivel por Defecto (`Read Committed`)
 
 #### Orden de Ejecución Intercalado
-1. **[Sesión A]** `BEGIN;`
-2. **[Sesión A]** `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-3. **[Sesión B]** `BEGIN;`
-4. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2420.00
-   ```
-5. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2420.00
-   ```
-6. **[Sesión A]** `COMMIT;`
-7. **[Sesión B]** `COMMIT;`
 
-
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`<br>*Salida: `UPDATE 1` — toma el lock de escritura sobre la fila* | |
+| 3 | | `BEGIN;` |
+| 4 | | `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`<br>**SE BLOQUEA** — la terminal queda sin responder, esperando el lock |
+| 5 | `COMMIT;` — *libera el lock* | **Se desbloquea y aplica su UPDATE** → `UPDATE 1` |
+| 6 | | `COMMIT;` |
 
 ---
 
 ### Caso 2: Nivel `Repeatable Read`
 
 #### Orden de Ejecución Intercalado
-1. **[Sesión B]** `BEGIN ISOLATION LEVEL REPEATABLE READ;`
-2. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2400.00
-   (1 row)
-   ```
-3. **[Sesión A]** `BEGIN;`
-4. **[Sesión A]** `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`
-   - *Salida:* `UPDATE 1`
-5. **[Sesión A]** `COMMIT;`
-6. **[Sesión B]** `SELECT precio FROM producto WHERE id_producto = 1;`
-   ```text
-    precio  
-   ---------
-   2400.00
-   (1 row)
-   ```
-7. **[Sesión B]** `COMMIT;`
 
+| Orden | Sesión A (terminal 1) | Sesión B (terminal 2) |
+|-------|----------------------|----------------------|
+| 1 | `BEGIN;` | |
+| 2 | `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`<br>*Salida: `UPDATE 1`* | |
+| 3 | | `BEGIN ISOLATION LEVEL REPEATABLE READ;` |
+| 4 | | `UPDATE producto SET precio = precio * 1.10 WHERE id_producto = 1;`<br>**SE BLOQUEA** — la terminal queda sin responder |
+| 5 | `COMMIT;` — *libera el lock* | **Se desbloquea y aplica su UPDATE** → `UPDATE 1` |
+| 6 | | `COMMIT;` |
 
---
+---
 
-### EXPLICAION DE EJECUCION DE LA IA
+### Explicación de la ejecución (IA)
 
-Caso 1 (Read Committed)
-- Qué pasó: A toma el lock de escritura de la fila (UPDATE sobre producto 1, sin commit). B lee la misma fila dos veces y ve el mismo valor (2420) porque A no commiteó todavía: los SELECT no esperan por locks (MVCC) ni ven datos sin commit. A commitea después de las lecturas de B, así que B nunca observa el cambio → en este intercalado no se manifiesta ninguna anomalía.
-- Qué lo evitaría: Para B no hay nada que evitar si solo lee (MVCC ya lo resuelve). La "espera" real existe solo si B escribiera la misma fila: esperaría bajo cualquier nivel. Para que B vea valores estables aunque A commitee entre sus dos lecturas → REPEATABLE READ.
+**Caso 1 (Read Committed)**
+- Qué pasó: A toma el lock de escritura de la fila (UPDATE sobre el producto 1, sin commit). B intenta el mismo UPDATE sobre la misma fila y **queda bloqueada**: PostgreSQL pone a B en espera hasta que A libere el lock con `COMMIT` (o `ROLLBACK`). Cuando A commitea, B se desbloquea y aplica su UPDATE. → se reproduce el fenómeno de **espera por bloqueo**.
+- Qué lo resolvería: mantener las transacciones lo más cortas posible, usar `SET lock_timeout = '3s'` para fallar en vez de esperar indefinidamente, o `SELECT ... FOR UPDATE NOWAIT` para reintentar.
 
+**Caso 2 (Repeatable Read)**
+- Qué pasó: con REPEATABLE READ el bloqueo de escritura se comporta igual: B espera el lock. El nivel de aislamiento protege las **lecturas** (snapshots), pero no elimina la espera de una **escritura-escritura** sobre la misma fila: ese serializado lo resuelve el motor con locks, en cualquier nivel.
+- Qué lo resolvería: los mismos mecanismos del Caso 1 (transacciones cortas, `lock_timeout`, `NOWAIT`). La espera por bloqueo no es una anomalía: es el mecanismo del motor para serializar escrituras concurrentes.
 
-Caso 2 (Repeatable Read)
-- Qué pasó: B fija su snapshot en el primer SELECT (2400). A modifica el precio (2400 × 1.1 = 2640) y commitea. B relee la misma fila y sigue viendo 2400 porque su snapshot quedó congelado al inicio de la transacción -> comportamiento correcto de RR, sin lectura no repetible.
-- Qué lo evitaría: REPEATABLE READ o SERIALIZABLE, que congelan la snapshot durante toda la transacción. Nota: si B intentara escribir basándose en ese valor viejo, RR lanzaría un error de serialización (40001).
+> **Autocrítica:** en la primera versión de este experimento la sesión B solo hacía `SELECT`s, que con MVCC nunca esperan por locks, por lo que el fenómeno no se reproducía. La secuencia se corrigió para que B ejecute un `UPDATE` sobre la misma fila bloqueada por A.
 
---
 ---
 
 ## EXPERIMENTO Lectura Fantasma (Phantom Read)
@@ -119,8 +96,8 @@ Caso 2 (Repeatable Read)
    ```
 7. **[Sesión B]** `COMMIT;`
 
---- 
-### EXPLICAION DE EJECUCION DE LA IA
+---
+### Explicación de la ejecución (IA)
 Caso 1 (Read Committed)
 - Qué pasó: B cuenta 1 detalle del pedido 1; A inserta una fila y commitea; B recuenta y ve 2 → LECTURA FANTASMA (aparece una fila nueva durante la transacción).
 - Qué lo evitaría: En PostgreSQL, REPEATABLE READ ya evita phantoms (la snapshot no ve el INSERT posterior commiteado) y SERIALIZABLE también. Como mecanismo de bloqueo clásico: gap/range locks sobre el rango consultado (es lo que hace MySQL/InnoDB; Postgres lo logra vía snapshot).
@@ -166,7 +143,7 @@ Caso 2 (Repeatable Read)
    ```text
     stock 
    -------
-     235
+    235
    (1 row)
    ```
 3. **[Sesión A]** `BEGIN;`
@@ -177,13 +154,13 @@ Caso 2 (Repeatable Read)
    ```text
     stock 
    -------
-     235
+    235
    (1 row)
    ```
 7. **[Sesión B]** `COMMIT;`
 
 ---
-### EXPLICAION DE EJECUCION DE LA IA
+### Explicación de la ejecución (IA)
 
 Caso 1 (Read Committed)
 - Qué pasó: B lee stock=240; A descuenta 5 y commitea (queda 235); B relee y ve 235 → LECTURA NO REPETIBLE. En RC cada sentencia abre un snapshot nuevo y ve el último commit.

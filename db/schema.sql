@@ -26,7 +26,8 @@ CREATE TABLE usuario (
     id_usuario BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
     apellido VARCHAR(50) NOT NULL,
-    mail VARCHAR(100) NOT NULL UNIQUE,
+    mail VARCHAR(100) NOT NULL
+        CONSTRAINT chk_mail_unico UNIQUE,
     celular VARCHAR(20),
     contrasena VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -61,7 +62,9 @@ CREATE TABLE producto (
         CONSTRAINT chk_producto_precio_positivo
         CHECK (precio > 0),
     descripcion VARCHAR(250),
-    stock INT NOT NULL DEFAULT 0 CHECK (stock >= 0),
+    stock INT NOT NULL DEFAULT 0
+        CONSTRAINT chk_producto_stock_no_negativo
+        CHECK (stock >= 0),
 
     id_categoria BIGINT NOT NULL
         REFERENCES categoria(id_categoria)
@@ -105,7 +108,7 @@ CREATE OR REPLACE FUNCTION fn_validar_fecha_pedido()
 RETURNS trigger AS $$
 BEGIN
     IF NEW.fecha::date > CURRENT_DATE THEN
-        RAISE EXCEPTION 'Fecha de pedido (%) no puede ser posterior a la fecha actual (%)',
+        RAISE EXCEPTION 'chk_pedido_fecha_no_pasada: la fecha del pedido (%) no puede ser posterior a la fecha actual (%)',
             NEW.fecha, CURRENT_DATE;
     END IF;
     RETURN NEW;
@@ -115,6 +118,41 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_pedido_fecha_no_pasada
     BEFORE INSERT OR UPDATE ON pedido
     FOR EACH ROW EXECUTE FUNCTION fn_validar_fecha_pedido();
+
+
+-- ============================================
+-- TRIGGER VALIDACIÓN TRANSICIONES DE ESTADO
+-- ============================================
+-- Solo se admiten las transiciones:
+--   PENDIENTE  -> CONFIRMADO
+--   PENDIENTE  -> CANCELADO
+--   CONFIRMADO -> TERMINADO
+-- Cualquier otra (saltos, retrocesos o cambios desde un estado final
+-- como TERMINADO/CANCELADO) se rechaza.
+-- Se usa un trigger (y no un CHECK) porque la validación compara el
+-- estado NUEVO contra el estado PREVIO de la misma fila (OLD), y un
+-- CHECK no puede leer el valor anterior de la fila.
+
+CREATE OR REPLACE FUNCTION fn_validar_estado_pedido()
+RETURNS trigger AS $$
+BEGIN
+    IF OLD.estado IS DISTINCT FROM NEW.estado
+       AND NOT (
+            (OLD.estado = 'PENDIENTE'  AND NEW.estado = 'CONFIRMADO') OR
+            (OLD.estado = 'PENDIENTE'  AND NEW.estado = 'CANCELADO')  OR
+            (OLD.estado = 'CONFIRMADO' AND NEW.estado = 'TERMINADO')
+       )
+    THEN
+        RAISE EXCEPTION 'chk_pedido_estado: transición de estado inválida de % a %',
+            OLD.estado, NEW.estado;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_validar_estado_pedido
+    BEFORE UPDATE OF estado ON pedido
+    FOR EACH ROW EXECUTE FUNCTION fn_validar_estado_pedido();
 
 
 
@@ -129,8 +167,12 @@ CREATE TABLE detalle_pedido (
         REFERENCES producto(id_producto)
         ON DELETE RESTRICT,
 
-    cantidad INT NOT NULL CHECK (cantidad > 0),
-    precio_unitario DECIMAL(10, 2) NOT NULL,
+    cantidad INT NOT NULL
+        CONSTRAINT chk_detalle_pedido_cantidad_positiva
+        CHECK (cantidad > 0),
+    precio_unitario DECIMAL(10, 2) NOT NULL
+        CONSTRAINT chk_detalle_pedido_precio_unitario_no_negativo
+        CHECK (precio_unitario >= 0),
     subtotal DECIMAL(10, 2) NOT NULL,
     PRIMARY KEY (id_pedido,id_producto),
 
@@ -165,12 +207,5 @@ CREATE TRIGGER trg_subtotal
 -- ============================================
 -- ÍNDICES
 -- ============================================
-
-CREATE INDEX idx_pedido_usuario
-    ON pedido(id_usuario);
-
-CREATE INDEX idx_producto_categoria
-    ON producto(id_categoria);
-
-CREATE INDEX idx_producto_nombre_vig ON producto(nombre)
-WHERE deleted_at IS NULL;
+-- Los índices viven en db/indices.sql (única fuente de verdad).
+-- Recrear índices aquí los haría divergir de ese archivo.

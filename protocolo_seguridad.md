@@ -1,21 +1,23 @@
-# Protocolo de Seguridad y Entorno de Trabajo - TP2
+# Protocolo de Seguridad y Entorno de Trabajo
 
-Este documento establece las directivas obligatorias para la ejecución de cualquier script DDL o DML sobre la base de datos del proyecto (creado manualmente o mediante un agente de IA como OpenCode/Kiro).
-
----
+Este documento establece las directivas obligatorias para la ejecución de cualquier script DDL o DML sobre la base de datos del proyecto.
 
 ## 1. Copia de Desarrollo (Copia)
-Nunca se modifica la base de datos principal o de plantilla directamente. Todas las pruebas y tareas de desarrollo se ejecutan obligatoriamente sobre una base de datos copia para aislar el entorno.
+
+Nunca se modifica la base de datos principal o de plantilla directamente. Todas las pruebas y tareas de desarrollo se ejecutan obligatoriamente sobre una base de datos copia (`copia_trabajo`) para aislar el entorno.
 
 **Comando de creación de la copia de trabajo:**
+
 ```bash
-createdb -U postgres -T "Food Store" "Food Store_dev"
----
+createdb -U postgres -T "Food Store" "copia_trabajo"
+```
 
 ## 2. Prueba en Transacción (Transacción)
-Todo script que inserte, modifique o elimine datos o estructuras debe correr primero dentro de una transacción explícita. Esto permite verificar las filas afectadas y los mensajes del motor antes de persisitir cualquier cambio.
+
+Todo script que inserte, modifique o elimine datos o estructuras debe correr primero dentro de una transacción explícita. Esto permite verificar las filas afectadas y los mensajes del motor antes de persistir cualquier cambio.
 
 **Estructura del bloque de prueba:**
+
 ```sql
 BEGIN;
 
@@ -23,33 +25,28 @@ BEGIN;
 -- Consultas SELECT de verificación para inspeccionar el efecto real
 
 ROLLBACK; -- Se revierte tras verificar la prueba
--- COMMIT; -- Solo se ejecuta si la verificación fue exitosa y se desea persisitir
+-- COMMIT; -- Solo se ejecuta si la verificación fue exitosa y se desea persistir
 ```
 
----
-
 ## 3. Respaldo previo a DDL (Respaldo)
-Antes de realizar cualquier cambio estructural sobre la base de datos (`ALTER TABLE`, `DROP`, migraciones de datos), se debe generar un respaldo completo de la copia de trabajo para poder retornar a un estado seguro en caso de error grave.
+
+Antes de realizar cualquier cambio estructural sobre la base de datos (`ALTER TABLE`, `DROP`, `CREATE TRIGGER`), se debe generar un respaldo completo de la copia de trabajo para poder retornar a un estado seguro en caso de error grave.
 
 **Comando de respaldo (Backup):**
+
 ```bash
-
-pg_dump -U postgres -F c -b -v -f "./db/backups/food_store_dev.backup" "Food Store_dev"
-
+pg_dump -U postgres -F c -b -v -f "./db/backups/backup_pre_cambio_$(date +%Y%m%d_%H%M%S).backup" "copia_trabajo"
 ```
 
 **Comando de restauración (en caso de falla destructiva):**
+
 ```bash
+pg_restore -U postgres -d "copia_trabajo" --clean "./db/backups/backup_pre_cambio_$(date +%Y%m%d_%H%M%S).backup"
+```
 
-pg_restore -U postgres -d "Food Store_dev" --clean "./db/backups/food_store_dev.backup"
+## 4. Orden de ejecución de los scripts
 
----
-
-### **Pasos a seguir ahora:**
-
-1. Copiá este contenido tanto en **`protocolo_seguridad.md`** (raíz) como en **`.kiro/steering/security-policies.md`**.
-2. Guardá ambos archivos.
-3. Hacé el commit en Git desde tu terminal:
-   ```bash
-   git add protocol_seguridad.md .kiro/steering/security-policies.md
-   git commit -m "docs: agrego protocolo de seguridad segun requerimiento de Parte 0"
+1. `db/schema.sql` — crea los tipos (ENUM), tablas, constraints y triggers con sus nombres definitivos.
+2. `db/indices.sql` — crea todos los índices de la base (única fuente de verdad para índices).
+3. `db/restricciones.sql` — re-aplica las restricciones de integridad sobre una base ya existente (opcional sobre esquema recién creado).
+4. `db/registros_foodstore.sql` — puebla la base con datos masivos de prueba.

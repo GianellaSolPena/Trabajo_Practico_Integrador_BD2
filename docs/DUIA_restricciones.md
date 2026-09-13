@@ -44,7 +44,7 @@ ALTER TABLE usuario
 
 ## Que se acepto
 
-Se aceptó el 100% de la propuesta generada por OpenCode en el archivo restricciones.sql: la restricción chk_producto_precio_positivo (CHECK (precio > 0)), la función y el trigger trg_pedido_fecha_no_pasada para validar la fecha de los pedidos, y la restricción de unicidad del mail de usuario (nombre final `chk_mail_unico`, pedido en la spec como `chk_username_unico`).
+Se aceptó el 100% de la propuesta generada por OpenCode en el archivo restricciones.sql: la restricción chk_producto_precio_positivo (CHECK (precio > 0)), la función y el trigger trg_pedido_fecha_no_pasada para validar la fecha de los pedidos, y la restricción chk_username_unico (UNIQUE) para la tabla usuario.
 
 ## Que se modifico 
 

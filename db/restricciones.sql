@@ -1,7 +1,12 @@
 -- ============================================
 -- RESTRICCIONES DE INTEGRIDAD
--- Base: Food Store (copia de trabajo)
+-- Base: copia de trabajo (ver protocolo_seguridad.md)
 -- Idempotente: seguro de re-aplicar.
+-- EJECUTAR DESPUÉS DE db/schema.sql (orden de ejecución:
+--   db/schema.sql → db/indices.sql → db/restricciones.sql → db/registros_foodstore.sql).
+-- Este script re-aplica las restricciones que ya viven en db/schema.sql
+-- con sus nombres definitivos, por si hay que re-aplicarlas sobre una
+-- base existente. Mantener alineado con db/schema.sql.
 -- ============================================
 
 
@@ -59,7 +64,8 @@ CREATE TRIGGER trg_pedido_fecha_no_pasada
 
 -- ============================================
 -- 3) USUARIO: mail único
---    Requirement: chk_username_unico (renombrada como chk_mail_unico).
+--    Nombre definitivo: chk_mail_unico (pedido en la spec original como
+--    chk_username_unico; se unificó al patrón chk_<tabla>_<columna>).
 --    La unicidad recae sobre la columna mail (lo que identifica al
 --    usuario): ningún usuario comparte mail, incluso si uno está
 --    eliminado lógicamente (deleted_at set). El UNIQUE es total sobre

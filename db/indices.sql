@@ -1,4 +1,10 @@
 
+DROP INDEX IF EXISTS idx_producto_nombre_vig;
+
+CREATE INDEX idx_producto_nombre_vig
+    ON producto(nombre)
+WHERE deleted_at IS NULL;
+
 DROP INDEX IF EXISTS idx_producto_categoria_precio;
 
 CREATE INDEX idx_producto_categoria_precio
@@ -20,8 +26,7 @@ WHERE deleted_at IS NULL;
 DROP INDEX IF EXISTS idx_pedido_usuario;
 
 CREATE INDEX idx_pedido_usuario
-    ON pedido(id_usuario)
-WHERE deleted_at IS NULL;
+    ON pedido(id_usuario);
 
 DROP INDEX IF EXISTS idx_detalle_pedido_id_pedido;
 

@@ -1,4 +1,5 @@
 
+
 -- ENUM FORMA DE PAGO
 
 CREATE TYPE forma_pago AS ENUM (
@@ -26,7 +27,8 @@ CREATE TABLE usuario (
     id_usuario BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
     apellido VARCHAR(50) NOT NULL,
-    mail VARCHAR(100) NOT NULL UNIQUE,
+
+    mail VARCHAR(100) NOT NULL CONSTRAINT chk_mail_unico UNIQUE,
     celular VARCHAR(20),
     contrasena VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -96,10 +98,7 @@ CREATE TABLE pedido (
 -- ============================================
 -- TRIGGER VALIDACIÓN FECHA PEDIDO
 -- ============================================
--- Impide que fecha sea posterior a CURRENT_DATE. Se usa un
--- trigger (y no un CHECK) porque CURRENT_DATE es un valor móvil: un
--- CHECK invalidaría las filas al pasar el día y rompería cualquier
--- UPDATE posterior de la misma fila.
+-- Impide que fecha sea posterior a CURRENT_DATE
 
 CREATE OR REPLACE FUNCTION fn_validar_fecha_pedido()
 RETURNS trigger AS $$
